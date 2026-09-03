@@ -27,6 +27,7 @@ struct MoveResult {
   VVM  Mt, loiappt;
   double corrb = 0.0;
   int    d = -1, f = -1;
+  bool   full_recompute = false;      // <-- add: force pruning_full even when d>0
   std::vector<double> quoisur;
   std::vector<double> la;
   double rho = 0.0, bruit = 0.0;
@@ -517,7 +518,15 @@ MoveResult modificationtopofrere_core(const Work& W, const Data& Dat, const Para
             if(W.L(c,i) != 0) corrb += Rng::dbeta(W.L(c,i), W.NL(c,i), 1.0);
           }
         }
-        
+                // ---- ensure M/loiapp consistent on EVERY branch (subtree was rescaled) ----
+        for(int ii = 0; ii < nch; ++ii)
+          for(int b = 0; b < trt.n_edges(); ++b){
+            Mt[ii][b] = transition_matrix(Xt[ii][b], W.Trposs[ii], P.nph[ii],
+                                          W.bruit, trt.edge_length[b]);
+            loiappt[ii][b] = loiapp(Xt[ii][b], Lcol_pos(Lt, b), P.loiini[ii],
+                                    W.Trposs[ii], W.bruit, trt.edge_length[b], Tpst[ii][b]);
+          }
+
         // ----- quoisur (VV[[11]]) -----
         std::vector<double> quoisur(nch, 0.0);
         if(!contains(root2, a)){                    // always true here (a has a parent)
@@ -533,6 +542,7 @@ MoveResult modificationtopofrere_core(const Work& W, const Data& Dat, const Para
           r.Mt = std::move(Mt);  r.loiappt = std::move(loiappt);
           r.corrb = corrb + (add_resc ? resc : 0.0);
           r.d = d; r.f = f; r.quoisur = std::move(quoisur);
+          r.full_recompute = true;          // <-- add: subtree was rescaled
           r.la = W.la; r.rho = W.rho; r.bruit = W.bruit;
           return r;
         }
@@ -937,7 +947,7 @@ int gibbstopopart2(Work& W, const Data& Dat, const Param& P, const Prior& Pr,
     return (gam!=0.0) ? -6 : 0;
   
   std::vector<std::vector<Mat>> lint(nch);
-  if(VV.d==0){                                            // outgroup: full recompute
+  if(VV.d==0 || VV.full_recompute){                      // outgroup OR frère: full recompute
     for(int x=0;x<nch;++x)
       lint[x]=pruning_full(VV.trt,VV.Xt[x],VV.Mt[x],VV.Lt,Dat[x],P.nph[x],
                            VV.trt.root_nodes,P.loiini[x],VV.loiappt[x]);
@@ -947,6 +957,7 @@ int gibbstopopart2(Work& W, const Data& Dat, const Param& P, const Prior& Pr,
       lint[x]=pruning_eco(VV.trt,VV.Xt[x],VV.Mt[x],Dat[x],P.nph[x],path1,
                           W.lin[x],VV.Lt,P.loiini[x],VV.loiappt[x]);
   }
+
   
   const double alph = lkldtopotout(VV.trt,VV.Xt,W.la,VV.NLt,W.rho,VV.Lt,W.P)
     - lkldtopotout(W.tr, W.X, W.la,W.NL, W.rho,W.L, W.P) + alphabis;
