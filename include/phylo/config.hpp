@@ -6,13 +6,16 @@
 namespace phylo {
 
 struct CliOptions {
-  std::string data_csv = "datasets/dataset.csv";
-  std::string config   = "config/europe_sl.cfg";
-  std::string out      = "EuropeBNZ.txt";
-  uint64_t    seed     = 12345;
-  int         ncores   = 1;
+  std::string data_csv           = "datasets/dataset.csv";
+  std::string config             = "config.cfg";
+  std::string name               = "result";
+  int         ncores             = 1;
+  uint64_t    seed               = 0;
+  bool        seed_set           = false;           // <-- add
+  bool        additional_results = false;           // <-- add
 };
 CliOptions parse_cli(int argc, char** argv);
+
 
 struct RawConfig {
   std::vector<int> char_cols, meanings;

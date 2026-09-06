@@ -135,9 +135,72 @@ SMCResult SMCbruit(const Data& Dat,const Param& P,const Prior& Pr,Rng& master,in
 }
 
 
+// ---- normalized posterior weights from log-weights ----
+static std::vector<double> normalized_weights(const std::vector<State>& parts){
+  const int n=(int)parts.size();
+  std::vector<double> w(n,0.0);
+  if(n==0) return w;
+  double mx=-INFINITY; for(int i=0;i<n;++i){ w[i]=parts[i].weight; if(w[i]>mx) mx=w[i]; }
+  double s=0; for(int i=0;i<n;++i){ w[i]=std::exp(w[i]-mx); s+=w[i]; }
+  if(s>0) for(int i=0;i<n;++i) w[i]/=s; else for(int i=0;i<n;++i) w[i]=1.0/n;
+  return w;
+}
 
+// ---- annotated Newick (per-branch transforms + apparition events) ----
+static void newick_annot_rec(const State& s,const Param& P,int node,std::string& out){
+  auto c=s.tr.children_of(node);
+  if(c[0]<0){
+    out += s.tr.tip_label[node-1];
+  } else {
+    out += "(";
+    newick_annot_rec(s,P,c[0],out);
+    out += ",";
+    newick_annot_rec(s,P,c[1],out);
+    out += ")";
+  }
+  int b=s.tr.branch_to(node);
+  if(b>=0){
+    std::string ann="[&";
+    bool firstkey=true;
+    for(int ch=0; ch<(int)s.X.size(); ++ch){
+      const auto& tl = s.X[ch][b];
+      std::string lst;
+      for(size_t k=0;k<tl.size();++k){
+        int t=tl[k];
+        if(t>=0 && t<(int)P.passages[ch].size())
+          lst += std::to_string(P.passages[ch][t][0])+"->"+std::to_string(P.passages[ch][t][1]);
+        else lst += "?";
+        if(k+1<tl.size()) lst += ";";
+      }
+      if(!firstkey) ann += ","; firstkey=false;
+      ann += "ch"+std::to_string(ch)+"_tr=\""+lst+"\","
+           + "ch"+std::to_string(ch)+"_n="+std::to_string((int)tl.size());
+    }
+    {
+      const int ncogn=(int)s.NL.rows();
+      std::string app; app.reserve(ncogn);
+      for(int cc=0; cc<ncogn; ++cc) app += (s.NL(cc,b)>0 ? '1':'0');
+      if(!firstkey) ann += ","; firstkey=false;
+      ann += "app=\""+app+"\"";
+      ann += ",app_n="+std::to_string((int)std::count(app.begin(),app.end(),'1'));
+    }
+    ann += "]";
+    out += ann;
+    out += ":"+std::to_string(s.tr.edge_length[b]);
+  }
+}
 
-void save_result(const SMCResult& r,const std::string& path){
+static std::string to_newick_annotated(const State& s,const Param& P){
+  std::string out;
+  int root = s.tr.root_nodes.empty() ? -1 : s.tr.root_nodes[0];
+  if(root>=0) newick_annot_rec(s,P,root,out);
+  out += ";";
+  return out;
+}
+
+void save_result(const SMCResult& r,const Param& P,
+                 const std::string& path,bool additional_results){
+  // ---- always produced ----
   std::ofstream f(path);
   f<<"# particle\tweight\trho\tbruit\tla...\ttaux...\tnewick\n";
   for(size_t i=0;i<r.particles.size();++i){ const State& s=r.particles[i];
@@ -149,7 +212,6 @@ void save_result(const SMCResult& r,const std::string& path){
     f<<to_newick(s.tr)<<"\n";
   }
 
-  // genealogy: row = resample step, column = particle, value = chosen parent index
   std::ofstream g(path+".geneal");
   g<<"# step\tparents(comma-separated, one entry per particle)\n";
   for(size_t step=0;step<r.histgeneal.size();++step){
@@ -159,7 +221,6 @@ void save_result(const SMCResult& r,const std::string& path){
     g<<"\n";
   }
 
-  // weight history: row = SMC step, column = particle, value = normalized log weight
   std::ofstream h(path+".pdshist");
   h<<"# step\tlogweights(comma-separated, one entry per particle)\n";
   for(size_t step=0;step<r.pdshist.size();++step){
@@ -169,17 +230,62 @@ void save_result(const SMCResult& r,const std::string& path){
     h<<"\n";
   }
 
-  // trees only, as a NEXUS TREES block (multiPhylo)
   std::ofstream n(path+".nex");
-  n<<"#NEXUS\n";
-  n<<"BEGIN TREES;\n";
+  n<<"#NEXUS\nBEGIN TREES;\n";
   for(size_t i=0;i<r.particles.size();++i){
     std::string nwk=to_newick(r.particles[i].tr);
-    if(!nwk.empty() && nwk.back()!=';') nwk.push_back(';');   // ensure trailing ';'
+    if(!nwk.empty() && nwk.back()!=';') nwk.push_back(';');
     n<<"    TREE tree_"<<i<<" = [&U] "<<nwk<<"\n";
   }
   n<<"END;\n";
+
+  // ---- only with --additional_results ----
+  if(additional_results){
+    std::ofstream cf(path+".changes");
+    cf<<"# particle\tchannel\tbranch\tparent\tchild\ttransforms(from->to;...)\n";
+    for(size_t i=0;i<r.particles.size();++i){ const State& s=r.particles[i];
+      for(int ch=0; ch<(int)s.X.size(); ++ch)
+        for(int b=0; b<(int)s.X[ch].size(); ++b){
+          cf<<i<<"\t"<<ch<<"\t"<<b<<"\t"
+            <<s.tr.edge[b][0]<<"\t"<<s.tr.edge[b][1]<<"\t";
+          const auto& tl=s.X[ch][b];
+          for(size_t k=0;k<tl.size();++k){
+            int t=tl[k];
+            if(t>=0 && t<(int)P.passages[ch].size())
+              cf<<P.passages[ch][t][0]<<"->"<<P.passages[ch][t][1];
+            else cf<<"?";
+            if(k+1<tl.size()) cf<<";";
+          }
+          cf<<"\n";
+        }
+    }
+
+    std::vector<double> w=normalized_weights(r.particles);
+    std::ofstream pf(path+".transfprob");
+    pf<<"# channel\ttransform_index\tfrom\tto\tP_present\tE_count\n";
+    for(int ch=0; ch<(int)P.passages.size(); ++ch){
+      const int T=(int)P.passages[ch].size();
+      std::vector<double> prob(T,0.0), ecount(T,0.0);
+      for(size_t i=0;i<r.particles.size();++i){ const State& s=r.particles[i];
+        std::vector<char> present(T,0); std::vector<long> cnt(T,0);
+        if(ch<(int)s.X.size())
+          for(const auto& branch:s.X[ch])
+            for(int t:branch) if(t>=0&&t<T){ present[t]=1; ++cnt[t]; }
+        for(int t=0;t<T;++t){ if(present[t]) prob[t]+=w[i]; ecount[t]+=w[i]*(double)cnt[t]; }
+      }
+      for(int t=0;t<T;++t)
+        pf<<ch<<"\t"<<t<<"\t"<<P.passages[ch][t][0]<<"\t"<<P.passages[ch][t][1]
+          <<"\t"<<prob[t]<<"\t"<<ecount[t]<<"\n";
+    }
+
+    std::ofstream an(path+".annot.nex");
+    an<<"#NEXUS\nBEGIN TREES;\n";
+    for(size_t i=0;i<r.particles.size();++i)
+      an<<"    TREE tree_"<<i<<" = [&R] "<<to_newick_annotated(r.particles[i],P)<<"\n";
+    an<<"END;\n";
+  }
 }
 
 
 } // namespace phylo
+

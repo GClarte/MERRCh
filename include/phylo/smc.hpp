@@ -10,6 +10,7 @@ struct SMCResult {
   std::vector<std::vector<int>> histgeneal;   // <-- add this line
 };
 SMCResult SMCbruit(const Data&,const Param&,const Prior&,Rng&,int ncores);
-void save_result(const SMCResult&,const std::string& path);
+void save_result(const SMCResult&, const Param& P, const std::string& path, bool additional_results=false);
+
 }
 
