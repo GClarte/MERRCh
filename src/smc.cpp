@@ -134,7 +134,6 @@ SMCResult SMCbruit(const Data& Dat,const Param& P,const Prior& Pr,Rng& master,in
   return {std::move(state),std::move(pdshist),std::move(histgeneal)};
 }
 
-
 // ---- normalized posterior weights from log-weights ----
 static std::vector<double> normalized_weights(const std::vector<State>& parts){
   const int n=(int)parts.size();
@@ -285,7 +284,6 @@ void save_result(const SMCResult& r,const Param& P,
     an<<"END;\n";
   }
 }
-
 
 } // namespace phylo
 

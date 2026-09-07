@@ -36,12 +36,13 @@ CliOptions parse_cli(int argc,char** argv){
   CliOptions o;
   for(int i=1;i<argc;++i){ std::string a=argv[i];
     auto next=[&](){ return std::string(argv[++i]); };
-    if(a=="--data") o.data_csv=next();
-    else if(a=="--config") o.config=next();
-    else if(a=="--out") o.out=next();
-    else if(a=="--seed"){ o.seed=std::stoull(next()); o.seed_set=true; }
-    else if(a=="--ncores") o.ncores=std::stoi(next());
-    else if(a=="--additional_results") o.additional_results=true;
+if     (a=="--data")               o.data_csv=next();
+else if(a=="--config")             o.config=next();
+else if(a=="--name")               o.name=next();
+else if(a=="--ncores")             o.ncores=std::stoi(next());
+else if(a=="--seed"){              o.seed=std::stoull(next()); o.seed_set=true; }
+else if(a=="--additional_results") o.additional_results=true;
+
 
   }
   return o;

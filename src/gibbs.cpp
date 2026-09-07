@@ -126,26 +126,24 @@ static void gibbstemps(Work& W,const Data& Dat,const Param& P,const Prior& Pr,in
   else { auto r=modifst(W.tr,rng); trc=r.first; corr=r.second; }
 
   int nch=P.nch;
-  std::vector<std::vector<Mat>> loiappc(nch), Mc(nch);                 // <-- add Mc
+  std::vector<std::vector<Mat>> loiappc(nch), Mc(nch);
   for(int x=0;x<nch;++x){ loiappc[x].resize(trc.n_edges()); Mc[x].resize(trc.n_edges());
     for(int y=0;y<trc.n_edges();++y){
       std::vector<double> lv; for(int c=0;c<W.L.rows();++c) if(W.L(c,y)>0) lv.push_back(W.L(c,y));
-      // transition matrix rebuilt at the PROPOSED tree's edge lengths
-      Mc[x][y]=transition_matrix(W.X[x][y],W.Trposs[x],P.nph[x],W.bruit,trc.edge_length[y]);   // <-- new
+      Mc[x][y]=transition_matrix(W.X[x][y],W.Trposs[x],P.nph[x],W.bruit,trc.edge_length[y]);
       loiappc[x][y]=loiapp(W.X[x][y],lv,P.loiini[x],W.Trposs[x],W.bruit,trc.edge_length[y],W.Tps[x][y]);
     }
   }
   std::vector<std::vector<Mat>> lint(nch);
   for(int x=0;x<nch;++x)
-    lint[x]=pruning_full(trc,W.X[x],Mc[x],W.L,Dat[x],P.nph[x],trc.root_nodes,P.loiini[x],loiappc[x]); // <-- Mc
+    lint[x]=pruning_full(trc,W.X[x],Mc[x],W.L,Dat[x],P.nph[x],trc.root_nodes,P.loiini[x],loiappc[x]);
   double bet=lkldcogn(lint,nch,trc.root_children,trc.root_nodes,ncogn,P.loiini)
            - lkldcogn(W.lin,nch,W.tr.root_children,W.tr.root_nodes,ncogn,P.loiini);
   double acc=lkldtopotout(trc,W.X,W.la,W.NL,W.rho,W.L,W.P)
            - lkldtopotout(W.tr,W.X,W.la,W.NL,W.rho,W.L,W.P)
            + log_prior_tree(trc,P,Pr)-log_prior_tree(W.tr,P,Pr)+bet+corr;
-  if(std::log(rng.runif())<acc){ W.tr=trc; W.lin=lint; W.loiapp=loiappc; W.M=Mc; }   // <-- commit Mc
+  if(std::log(rng.runif())<acc){ W.tr=trc; W.lin=lint; W.loiapp=loiappc; W.M=Mc; }
 }
-
 
 // ---------- transformations move (only v=3 / v=4 as in R) ----------
 static void gibbstransf(Work& W,int j,const Data& Dat,const Param& P,int ncogn,Rng& rng){
@@ -308,3 +306,4 @@ State gibbsbr2(const Data& Dat,int ncogn,int m,int mm,const Prior& Pr,const Para
   return out;
 }
 } // namespace phylo
+
