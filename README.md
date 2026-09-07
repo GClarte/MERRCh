@@ -8,6 +8,7 @@ You can also install it in another folder, but you need to change CMakeLists acc
 Then compile with 
 
 mkdir build
+
 cmake --build build
 
 Note that you must compile on a similar architecture as you will run (for example, on a cluster, start an interacting session and compile there).
