@@ -7,7 +7,9 @@ You can also install it in another folder, but you need to change CMakeLists acc
 
 Then compile with 
 
-mkdir build
+mkdir build && cd build
+
+cmake ..
 
 cmake --build build
 
