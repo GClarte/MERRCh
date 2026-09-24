@@ -73,6 +73,7 @@ struct Param {
   TreePrior priortree = TreePrior::Unif;
   std::vector<std::array<double, 4>> Prila; // (shape,rate,lo,hi) per channel
   double height_lo = 150.0, height_hi = 1000.0;
+  int topology_counting = 0;
 };
 
 using Data = std::vector<Eigen::MatrixXi>; // one ncogn x nlangues matrix per channel, -1 == NA

@@ -79,11 +79,29 @@ RawConfig load_config(const std::string& path){
     else if(k=="language_col") c.lang_col=std::stoi(v);
     else if(k=="meaning_col") c.meaning_col=std::stoi(v);
     else if(k=="tipprior"){ for(auto& g:split(v,';')) c.tipprior.push_back(parse_ints(g)); }
+    else if(k=="topology_counting") c.topology_counting=std::stoi(v);
+
     else if(k=="cladeage"){
       for(auto& g:split(v,';')){ auto lr=split(g,':'); if(lr.size()!=2) continue;
         auto tips=parse_ints(lr[0]); auto ages=parse_dbls(lr[1]);
         c.cladeage.push_back({tips,{ages[0],ages.size()>1?ages[1]:INFINITY}}); }
     }
+    else if(k=="nstates") c.nstates=parse_ints(v);
+    else if(k=="passages"){
+    c.passages.clear();
+    for(auto& g : split(v,';')){
+        std::vector<std::array<int,2>> ch;
+        for(auto& p : split(g,',')){
+            auto arrow = p.find("->");
+            if(arrow==std::string::npos) continue;
+            int from = std::stoi(trim(p.substr(0,arrow)));
+            int to   = std::stoi(trim(p.substr(arrow+2)));
+            ch.push_back({from,to});
+        }
+        c.passages.push_back(ch);
+    }
+}
+
   }
   return c;
 }
@@ -103,16 +121,23 @@ void finalize(const RawConfig& c,const std::vector<int>& nph,Param& P,Prior& Pr)
   P.agemax=Eigen::Vector2d(c.agemax[0],c.agemax[1]);
   P.agemax_value = c.agemax_fixed ? c.agemax[0] : 0.0;
   P.tiplabel=c.langues;
+  P.topology_counting = c.topology_counting;
   P.Cladeage=c.cladeage;
   P.priortree = c.treeprior=="yule"?TreePrior::Yule:(c.treeprior=="coal"?TreePrior::Coal:TreePrior::Unif);
-  P.height_lo=c.height_lo; P.height_hi=c.height_hi;
-  P.passages.resize(nch); for(int i=0;i<nch;++i) P.passages[i]=toutestransf(nph[i]);
+  P.height_lo=c.height_lo; P.height_hi=c.height_hi;P.passages.resize(nch);
+for(int i=0;i<nch;++i){
+    if(i < (int)c.passages.size() && !c.passages[i].empty())
+        P.passages[i] = c.passages[i];
+    else
+        P.passages[i] = toutestransf(nph[i]);
+}
   P.loiini.resize(nch); for(int i=0;i<nch;++i) P.loiini[i]=Vec::Constant(nph[i],1.0/nph[i]);
   P.Prila.assign(nch,c.prila);
 
   Pr.Prirho=Eigen::Vector2d(c.prirho[0],c.prirho[1]);
   Pr.hyperpbini.resize(nch);
-  for(int i=0;i<nch;++i) Pr.hyperpbini[i]=Vec::Ones(P.passages[i].size());
+for(int i=0;i<nch;++i) Pr.hyperpbini[i]=Vec::Ones(P.passages[i].size());  // already uses P.passages
+
   Pr.pribeta=Eigen::MatrixXd(2,nch);
   for(int i=0;i<nch;++i){ Pr.pribeta(0,i)=c.pribeta[0]; Pr.pribeta(1,i)=c.pribeta[1]; }
   Pr.bruittemp=c.bruittemp;

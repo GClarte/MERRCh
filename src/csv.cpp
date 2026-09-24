@@ -30,17 +30,21 @@ DataBundle load_data(const std::string& path,
   std::map<std::string,int> lang_idx;
   for(int i=0;i<nlang;++i) lang_idx[langues[i]]=i;
 
+  // ---- read header to get ncol, then data rows ----
   std::vector<std::vector<std::string>> rows;
   int ncol=-1; std::string line; bool first=true;
   while(std::getline(f,line)){
-    if(first){ if(line.size()>=3 && (unsigned char)line[0]==0xEF) line=line.substr(3);
-               first=false; continue; }                 // skip header + BOM
+    if(first){
+      if(line.size()>=3 && (unsigned char)line[0]==0xEF) line=line.substr(3);
+      first=false;
+      auto header=split_csv(line);   // parse header to get ncol
+      ncol=(int)header.size();
+      continue;
+    }
     if(trim(line).empty()) continue;
-    auto cells=split_csv(line);
-    if(ncol==-1) ncol=(int)cells.size();
-    rows.push_back(std::move(cells));
+    rows.push_back(split_csv(line));
   }
-  if(rows.empty()) throw std::runtime_error("no data rows in "+path);
+
   if(ncol<3) throw std::runtime_error("need >=3 columns: language,meaning,character...");
 
   // ---- resolve which columns are characters (1-based) ----
@@ -59,7 +63,14 @@ DataBundle load_data(const std::string& path,
   const int nch=(int)cols.size();
   if(nch==0) throw std::runtime_error("no character columns selected");
 
-  // ---- distinct meanings -> row index (string-keyed, sorted ascending) ----  [CHANGED]
+  // ---- handle empty data (prior-only mode) ----
+  if(rows.empty()){
+    Data dat(nch);
+    for(int c=0;c<nch;++c) dat[c]=Eigen::MatrixXi(0,nlang);
+    return { std::move(dat), std::vector<int>(nch,0) };
+  }
+
+  // ---- distinct meanings -> row index (string-keyed, sorted ascending) ----
   std::set<std::string> mset;
   for(auto& r:rows)
     if(r.size()>=2){ std::string m=trim(r[1]); if(!m.empty()) mset.insert(m); }
@@ -86,7 +97,7 @@ DataBundle load_data(const std::string& path,
   for(auto& r:rows){
     if((int)r.size()<ncol) continue;
     auto li=lang_idx.find(trim(r[0]));  if(li==lang_idx.end()) continue;
-    std::string mv=trim(r[1]);          if(mv.empty()) continue;   // [CHANGED]
+    std::string mv=trim(r[1]);          if(mv.empty()) continue;
     auto mi=mean_idx.find(mv);          if(mi==mean_idx.end()) continue;
     for(int c=0;c<nch;++c){
       int col=cols[c]-1;
@@ -96,7 +107,6 @@ DataBundle load_data(const std::string& path,
   }
   return { std::move(dat),std::move(nph) };
 }
-
 
 } // namespace phylo
 

@@ -20,6 +20,7 @@ CliOptions parse_cli(int argc, char** argv);
 struct RawConfig {
   std::vector<int> char_cols, meanings;
   std::vector<std::string> langues;
+  int topology_counting = 0;   // 0 = disabled, N = count every N steps
   int npart=1500, npas=4000, npasfin=40000, Nmin=750;
   std::vector<double> prob, probfin, bruittemp;
   std::array<double,2> agemax{100.0,0.4}; bool agemax_fixed=false;
@@ -31,6 +32,8 @@ struct RawConfig {
   std::vector<std::vector<int>> tipprior;
   std::vector<std::pair<std::vector<int>,std::array<double,2>>> cladeage;
   int lang_col=4, meaning_col=3;
+  std::vector<int> nstates;   // ADD: number of states per channel, for prior-only mode
+  std::vector<std::vector<std::array<int,2>>> passages;  // optional, per channel
 };
 
 RawConfig load_config(const std::string& path);

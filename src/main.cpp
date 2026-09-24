@@ -41,9 +41,22 @@ int main(int argc,char** argv){
   try{
     CliOptions cli=parse_cli(argc,argv);
     RawConfig raw=load_config(cli.config);
-    DataBundle db=load_data(cli.data_csv,raw.langues,raw.char_cols);
+DataBundle db = load_data(cli.data_csv, raw.langues, raw.char_cols);
+
+std::vector<int> nph = db.nph;
+bool data_empty = db.dat.empty() || db.dat[0].rows() == 0;
+if(data_empty){
+    if(raw.nstates.empty())
+        throw std::runtime_error("nstates must be set in config for prior-only mode (empty data)");
+    nph = raw.nstates;
+    // Rebuild dat with correct number of channels to match nstates
+    db.dat.resize(nph.size());
+    for(int c = 0; c < (int)nph.size(); ++c)
+        db.dat[c] = Eigen::MatrixXi(0, (int)raw.langues.size());
+}
+
     Param param; Prior prior;
-    finalize(raw,db.nph,param,prior);
+    finalize(raw,nph,param,prior);
 
     uint64_t seed=make_seed(cli);
     std::fprintf(stderr,"[seed] %llu%s\n",(unsigned long long)seed,

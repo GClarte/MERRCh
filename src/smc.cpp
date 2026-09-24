@@ -13,6 +13,7 @@
 #include <cstdio>
 #ifdef _OPENMP
 #include <omp.h>
+#include <unordered_set>
 #endif
 namespace phylo {
 
@@ -26,6 +27,44 @@ static double ess(const std::vector<double>& logw){
   double s2=0; for(double v:logw) s2+=std::exp(2*v);
   return 1.0/s2;
 }
+
+// ---- Topology diversity --------------------------------------------------
+
+// Recursively build a canonical, branch-length-free string for the subtree
+// rooted at `node`.  Leaves are identified by their tip label.  The two
+// child subtrees are sorted lexicographically so that every equivalent
+// topology maps to exactly one string regardless of internal node numbering
+// or the left/right ordering stored in `edge`.
+static std::string topo_rec(const Tree& tr, int node)
+{
+    auto c = tr.children_of(node);
+    if (c[0] < 0)                                  // leaf node
+        return tr.tip_label[node - 1];
+    std::string l = topo_rec(tr, tr.edge[c[0]][1]);
+    std::string r = topo_rec(tr, tr.edge[c[1]][1]);
+    if (l > r) std::swap(l, r);                    // enforce canonical order
+    return "(" + l + "," + r + ")";
+}
+
+// Return the canonical topology string for `tr` (empty if no root is set).
+static std::string topology_string(const Tree& tr)
+{
+    if (tr.root_nodes.empty()) return {};
+    return topo_rec(tr, tr.root_nodes[0]);
+}
+
+// Count the number of distinct topologies (branch lengths ignored) present
+// in `particles`.  Two particles share a topology when their canonical
+// strings are identical.
+static int count_unique_topologies(const std::vector<State>& particles)
+{
+    std::unordered_set<std::string> seen;
+    seen.reserve(particles.size());
+    for (const auto& s : particles)
+        seen.insert(topology_string(s.tr));
+    return static_cast<int>(seen.size());
+}
+
 
 static void forward_bruit(State& st,const Data& Dat,const Param& P,const Prior& Pr,int j){
   int nch=P.nch; double bruit=Pr.bruittemp[j];
@@ -65,6 +104,7 @@ SMCResult SMCbruit(const Data& Dat,const Param& P,const Prior& Pr,Rng& master,in
   int npart=P.npart, ncogntot=(int)Dat[0].rows();
   auto t0=std::chrono::steady_clock::now();
   size_t nsteps=Pr.bruittemp.size();
+  const int topo_freq=P.topology_counting;   // 0 = disabled
 
   std::vector<State> state(npart);
   { std::vector<uint64_t> seeds(npart); for(auto& s:seeds) s=master.raw();
@@ -97,9 +137,25 @@ SMCResult SMCbruit(const Data& Dat,const Param& P,const Prior& Pr,Rng& master,in
   std::fprintf(stderr,"[SMC] start: %d particles, %zu temperature steps, %d cores\n",
                npart, nsteps, ncores);
 
-  maybe_resample(pds);
+  // ---- initial step -------------------------------------------------------
+  {
+    int ntopo_before=-1, ntopo_after=-1;
+    if(topo_freq>0){
+      ntopo_before=count_unique_topologies(state);
+      maybe_resample(pds);
+      ntopo_after=count_unique_topologies(state);
+      std::fprintf(stderr,
+        "[SMC] init  bruit=%.4f  unique topologies: %d (before resample) -> %d (after resample)\n",
+        Pr.bruittemp[0], ntopo_before, ntopo_after);
+    } else {
+      maybe_resample(pds);
+      std::fprintf(stderr,
+        "[SMC] init  bruit=%.4f\n", Pr.bruittemp[0]);
+    }
+  }
   pasparalbruit(state,P.npas,Dat,Pr,P,ncores,ncogntot,false,master);
 
+  // ---- main temperature loop ----------------------------------------------
   for(size_t jstep=1;jstep<nsteps;++jstep){
     for(auto& s:state) forward_bruit(s,Dat,P,Pr,(int)jstep);
     for(int i=0;i<npart;++i) pds[i]=state[i].weight;
@@ -108,17 +164,38 @@ SMCResult SMCbruit(const Data& Dat,const Param& P,const Prior& Pr,Rng& master,in
     double curess=ess(pds);
     bool willresample=(curess<P.Nmin);
 
+    bool do_topo=(topo_freq>0 && jstep % topo_freq == 0);
+    int ntopo_before=-1, ntopo_after=-1;
+    if(do_topo) ntopo_before=count_unique_topologies(state);
     maybe_resample(pds);
+    if(do_topo) ntopo_after=count_unique_topologies(state);
+
     pasparalbruit(state,P.npas,Dat,Pr,P,ncores,ncogntot,false,master);
 
     double elapsed=std::chrono::duration<double>(
                      std::chrono::steady_clock::now()-t0).count();
     double frac=(double)(jstep+1)/(double)nsteps;
     double eta=(frac>0)? elapsed*(1.0/frac-1.0) : 0.0;
-    std::fprintf(stderr,
-      "[SMC] step %zu/%zu (%.1f%%)  ESS=%.1f  %s  elapsed=%.1fs  ETA=%.1fs\n",
-      jstep+1, nsteps, 100.0*frac, curess,
-      willresample?"resampled":"kept    ", elapsed, eta);
+
+    if(do_topo){
+      std::fprintf(stderr,
+        "[SMC] step %zu/%zu (%.1f%%)  bruit=%.4f  ESS=%.1f  %s"
+        "  topologies=%d->%d"
+        "  elapsed=%.1fs  ETA=%.1fs\n",
+        jstep+1, nsteps, 100.0*frac,
+        Pr.bruittemp[jstep], curess,
+        willresample?"resampled":"kept    ",
+        ntopo_before, ntopo_after,
+        elapsed, eta);
+    } else {
+      std::fprintf(stderr,
+        "[SMC] step %zu/%zu (%.1f%%)  bruit=%.4f  ESS=%.1f  %s"
+        "  elapsed=%.1fs  ETA=%.1fs\n",
+        jstep+1, nsteps, 100.0*frac,
+        Pr.bruittemp[jstep], curess,
+        willresample?"resampled":"kept    ",
+        elapsed, eta);
+    }
     std::fflush(stderr);
   }
 
@@ -133,6 +210,8 @@ SMCResult SMCbruit(const Data& Dat,const Param& P,const Prior& Pr,Rng& master,in
 
   return {std::move(state),std::move(pdshist),std::move(histgeneal)};
 }
+
+
 
 // ---- normalized posterior weights from log-weights ----
 static std::vector<double> normalized_weights(const std::vector<State>& parts){

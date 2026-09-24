@@ -146,7 +146,6 @@ std::pair<Tree,double> iniaveccontraintes(const Param& P,const Prior& Pr,Rng& rn
     if(ok) return vv;
   }
 }
-
 State initialisation1partbruit(const Data& Dat,const Param& P,const Prior& Pr,Rng& rng){
   int nfeuilles=(int)Dat[0].cols(), k=(int)Dat[0].rows(), nch=P.nch;
   double bruit=Pr.bruittemp[0];
@@ -197,4 +196,5 @@ State initialisation1partbruit(const Data& Dat,const Param& P,const Prior& Pr,Rn
   s.rho=rho; s.bruit=bruit; s.P=Pb; s.weight=weight; s.Lin=lin;
   return s;
 }
+
 } // namespace phylo
